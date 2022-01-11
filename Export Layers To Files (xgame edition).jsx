@@ -85,9 +85,9 @@ var TrimPrefType = {
     INDIVIDUAL: 2,
     INDIVIDUAL_USE_TRIM: 3,
     COMBINED: 4,
-
+    X_GAME_BOTTOM_CENTER: 5,
     values: function() {
-        return [this.INDIVIDUAL, this.INDIVIDUAL_USE_TRIM, this.COMBINED];
+        return [this.INDIVIDUAL, this.INDIVIDUAL_USE_TRIM, this.COMBINED,this.X_GAME_BOTTOM_CENTER];
     },
 
     forIndex: function(index) {
@@ -409,6 +409,7 @@ var DEFAULT_SETTINGS = {
     topGroupAsLayer: app.stringIDToTypeID("topGroupAsLayer"),
     trim: app.stringIDToTypeID("trim"),
     trimValue: app.stringIDToTypeID("trimValue"),
+    flip: app.stringIDToTypeID("flip"),
     useDelimiter: app.stringIDToTypeID("useDelimiter"),
     visibleOnly: app.stringIDToTypeID('visibleOnly'),
 };
@@ -573,12 +574,16 @@ function exportLayers(exportLayerTarget, progressBarWindow) {
         // Flattened images don't support LayerComps or visibility toggling, so export it directly.
 
         storeHistory();
+        //支持翻转功能
+        if (prefs.flip)
+            flipImage();
 
         if (prefs.scale)
             scaleImage();
 
         if (prefs.padding)
             addPadding();
+        //模式处理
 
         if (saveImage(layers[0].layer.name)) {
             ++retVal.count;
@@ -622,6 +627,7 @@ function exportLayers(exportLayerTarget, progressBarWindow) {
 
         // Turn off all layers when exporting all layers - even seemingly invisible ones.
         // When visibility is switched, the parent group becomes visible and a previously invisible child may become visible by accident.
+        //全不可见
         for (var i = 0; i < count; ++i) {
             makeInvisible(layersToExport[i]);
         }
@@ -638,9 +644,14 @@ function exportLayers(exportLayerTarget, progressBarWindow) {
         if (prefs.nameFiles != FileNameType.AS_LAYERS) {
             countDigits = ("" + count).length;
         }
-
+        
+        //翻转，由于是翻转的canvas，需要在layer的循环之外修改
+        if (prefs.flip)
+            flipImage();
+        
         // export layers
         for (var i = (prefs.exportForeground ? 1 : 0); i < count; ++i) {
+            
             var layer = layersToExport[i].layer;
 
             // Ignore layers that have are prefixed with ignoreLayersString
@@ -689,6 +700,14 @@ function exportLayers(exportLayerTarget, progressBarWindow) {
                     if (prefs.trimValue == TrimPrefType.INDIVIDUAL_USE_TRIM) {
                         doc.trim(TrimType.TRANSPARENT);
                     }
+                    //
+                    if (prefs.trimValue == TrimPrefType.X_GAME_BOTTOM_CENTER) {
+                        var tmpLayer = layer.duplicate();
+                        tmpLayer.resize(-100,undefined);
+                        doc.trim(TrimType.TRANSPARENT,true,true,false,true);
+                        tmpLayer.visible = false;
+                        // tmpLayer.remove();
+                    }
 
                     var folderSafe = true;
                     if (prefs.groupsAsFolders) {
@@ -704,7 +723,6 @@ function exportLayers(exportLayerTarget, progressBarWindow) {
 
                         if (prefs.padding)
                             addPadding();
-
                         saveImage(fileName);
                         ++retVal.count;
                     }
@@ -740,6 +758,10 @@ function exportLayers(exportLayerTarget, progressBarWindow) {
 function scaleImage() {
     var width = app.activeDocument.width.as("px") * (prefs.scaleValue / 100);
     app.activeDocument.resizeImage(UnitValue(width, "px"), null, null, ResampleMethod.BICUBICSHARPER);
+}
+
+function flipImage() {
+    app.activeDocument.flipCanvas(Direction.HORIZONTAL);
 }
 
 function addPadding() {
@@ -1329,6 +1351,12 @@ function showDialog() {
 
     fields.ddTrim.enabled = prefs.trim;
     fields.ddTrim.selection = prefs.trimValue === TrimPrefType.DONT_TRIM ? 0 : TrimPrefType.getIndex(prefs.trimValue);
+    fields.ddTrim.enabled = prefs.trim;
+
+    // ============
+    // FLIP SECTION
+    // ============
+    fields.cbFlip.value = prefs.flip;
 
     // ===============
     // PADDING SECTION
@@ -1619,6 +1647,7 @@ function saveSettings(dialog) {
     desc.putBoolean(DEFAULT_SETTINGS.topGroupAsLayer, fields.cbTopGroupsAsLayers.value);
     desc.putBoolean(DEFAULT_SETTINGS.trim, fields.cbTrim.value);
     desc.putInteger(DEFAULT_SETTINGS.trimValue, fields.cbTrim.value ? TrimPrefType.forIndex(fields.ddTrim.selection.index) : TrimPrefType.DONT_TRIM);
+    desc.putInteger(DEFAULT_SETTINGS.flip, fields.cbFlip.value);
     desc.putBoolean(DEFAULT_SETTINGS.useDelimiter, fields.cbDelimiter.value);
     desc.putBoolean(DEFAULT_SETTINGS.visibleOnly, fields.cbVisibleOnly.value);
 
@@ -1703,6 +1732,7 @@ function getDefaultSettings() {
             topGroupAsLayer: false,
             trim: false,
             trimValue: TrimPrefType.INDIVIDUAL,
+            flip: false,
             useDelimiter: false,
             visibleOnly: false,
         };
@@ -1785,6 +1815,7 @@ function getSettings(formatOpts) {
             topGroupAsLayer: desc.getBoolean(DEFAULT_SETTINGS.topGroupAsLayer),
             trim: desc.getBoolean(DEFAULT_SETTINGS.trim),
             trimValue: desc.getInteger(DEFAULT_SETTINGS.trimValue),
+            flip: desc.getBoolean(DEFAULT_SETTINGS.flip),
             useDelimiter: desc.getBoolean(DEFAULT_SETTINGS.useDelimiter),
             visibleOnly: desc.getBoolean(DEFAULT_SETTINGS.visibleOnly),
 
@@ -2483,6 +2514,8 @@ function getDialogFields(dialog) {
         cbTrim: dialog.findElement("cbTrim"),
         ddTrim: dialog.findElement("ddTrim"),
 
+        cbFlip: dialog.findElement("cbFlip"),
+
         cbPadding: dialog.findElement("cbPadding"),
         grpPaddingLabel: dialog.findElement("grpPaddingLabel"),
         txtPadding: dialog.findElement("txtPadding"),
@@ -2855,7 +2888,7 @@ function makeMainDialog() {
         pnlModifyLayers.spacing = 5; 
         pnlModifyLayers.margins = 10; 
         pnlModifyLayers.alignment = ["fill","center"]; 
-
+    
     // GRPTRIM
     // =======
     var grpTrim = pnlModifyLayers.add("group", undefined, {name: "grpTrim"}); 
@@ -2868,7 +2901,7 @@ function makeMainDialog() {
         cbTrim.helpTip = "Whether to trim before export"; 
         cbTrim.text = "Trim"; 
 
-    var ddTrim_array = ["Each Layer","Each Layer (use trim())","Combined"]; 
+    var ddTrim_array = ["Each Layer","Each Layer (use trim())","Combined","Each Layer(xgame_bottom)"]; 
     var ddTrim = grpTrim.add("dropdownlist", undefined, undefined, {name: "ddTrim", items: ddTrim_array}); 
         ddTrim.selection = 0; 
 
@@ -2925,6 +2958,18 @@ function makeMainDialog() {
 
     var lblScale = grpScaleLabel.add("statictext", undefined, undefined, {name: "lblScale"}); 
         lblScale.text = "%"; 
+
+    // GRPFLIP
+    // =======
+    var grpFlip = pnlModifyLayers.add("group", undefined, {name: "grpFlip"}); 
+        grpFlip.orientation = "row"; 
+        grpFlip.alignChildren = ["left","center"]; 
+        grpFlip.spacing = 10; 
+        grpFlip.margins = 0; 
+
+    var cbFlip = grpFlip.add("checkbox", undefined, undefined, {name: "cbFlip"}); 
+        cbFlip.helpTip = "Whether to flip before export"; 
+        cbFlip.text = "Flip"; 
 
     // PNLEXPORTAS
     // ===========
